@@ -1,0 +1,51 @@
+services:
+  # 1. 아파치 카프카 (Apache 공식 이미지 적용)
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: capstone-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # 도커 내부망(29092)과 내 컴퓨터(9092)를 분리해서 통신 충돌 방지
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # KRaft 모드에 필수로 들어가야 하는 클러스터 고유 ID (고정값)
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+  # 2. 카프카 UI (모니터링 대시보드)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: capstone-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=Capstone-Local
+      # UI는 도커 내부망(29092)을 통해 카프카와 통신
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+    depends_on:
+      - kafka
+
+  # 3. 시계열 데이터베이스 (InfluxDB v2)
+  influxdb:
+    image: influxdb:2.7
+    container_name: capstone-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=capstone2026!
+      - DOCKER_INFLUXDB_INIT_ORG=khnp-dr
+      - DOCKER_INFLUXDB_INIT_BUCKET=power-data
+      # 실무에서는 숨겨야 하지만, 로컬 개발을 위해 고정 토큰 발급
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=super-secret-capstone-token
+    depends_on:
+      - kafka

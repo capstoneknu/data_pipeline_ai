@@ -1,0 +1,22 @@
+# 가상환경 (절대 올리면 안 됨)
+.venv/
+env/
+venv/
+
+# 대용량 데이터 파일 (GitHub는 100MB 이상 업로드 불가)
+*.csv
+*.xlsx
+*.txt
+data/
+
+# AI 모델 가중치 파일 (용량이 크고 매번 바뀜)
+saved_models/
+*.pth
+*.pt
+
+# 파이썬 캐시 찌꺼기
+__pycache__/
+*.pyc
+
+# 환경변수 및 비밀번호 파일 (보안)
+.env
