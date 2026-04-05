@@ -7,7 +7,7 @@
 본 프로젝트의 원본 데이터는 대용량으로, 드라이브에 압축하여 링크를 공유합니다. <br>
 코드를 실행하기 전, 반드시 아래 절차를 통해 데이터를 로컬에 세팅해 주세요.
 
-**[데이터 다운로드 링크 (Google Drive)]**
+**[데이터 다운로드 링크 (Google Drive)]**<br>
 https://drive.google.com/file/d/1FAhj9jCu8ryB4thFB-vR_AtOtgGcFJkq/view?usp=drive_link  
 
 **[세팅 절차]**
