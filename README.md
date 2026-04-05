@@ -3,7 +3,7 @@
 
 
 # 최종 구조 요약
-'''
+```
 Capstone2026/
  ┣ .gitignore
  ┣ docker-compose.yml
@@ -17,4 +17,4 @@ Capstone2026/
  ┃  ┣ model.py
  ┃  ┗ train.py
  ┗ backend-app-svc/
-'''
+```
