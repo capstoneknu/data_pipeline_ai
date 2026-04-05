@@ -21,7 +21,7 @@ https://drive.google.com/file/d/1FAhj9jCu8ryB4thFB-vR_AtOtgGcFJkq/view?usp=drive
 프랑스 파리 전역 2075259가구의 1분 단위로 측정한 전력 소비 데이터에, 원주시 시간대별 전력 사용량 데이터의 전력 소비 패턴을 융합하여<br>
 1,000가구 분량의 실무형 데이터를 합성하였습니다.
 <br><br>
-# 최종 구조 요약
+# 현재까지 폴더 구조 요약
 ```
 Capstone2026/
  ┣ data/
