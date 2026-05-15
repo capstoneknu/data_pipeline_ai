@@ -1,5 +1,45 @@
+version: '3.8'
+
+networks:
+  capstone-network:
+    driver: bridge
+
+volumes:
+  kafka_data:
+  influxdb_data:
+  influxdb_config:
+  mysql_data:      
+  mosquitto_data: 
+  mosquitto_log:
+
 services:
-  # 1. 아파치 카프카 (Apache 공식 이미지 적용)
+  # ==========================================
+  # IoT Message Broker: Eclipse Mosquitto
+  # ==========================================
+  mosquitto:
+    image: eclipse-mosquitto:2.0.15
+    container_name: capstone-mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    environment:
+      - TZ=Asia/Seoul
+    command: >
+      sh -c "echo 'allow_anonymous true' > /mosquitto/config/default.conf &&
+      echo 'listener 1883 0.0.0.0' >> /mosquitto/config/default.conf &&
+      echo 'listener 9001 0.0.0.0' >> /mosquitto/config/default.conf &&
+      echo 'protocol websockets' >> /mosquitto/config/default.conf &&
+      mosquitto -c /mosquitto/config/default.conf"
+    networks:
+      - capstone-network
+    restart: unless-stopped
+  # ==========================================
+  # [1] Apache Kafka
+  # ==========================================
+
   kafka:
     image: apache/kafka:3.7.0
     container_name: capstone-kafka
@@ -8,32 +48,40 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      # 도커 내부망(29092)과 내 컴퓨터(9092)를 분리해서 통신 충돌 방지
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://127.0.0.1:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # KRaft 모드에 필수로 들어가야 하는 클러스터 고유 ID (고정값)
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    networks:
+      - capstone-network
+    restart: unless-stopped
 
-  # 2. 카프카 UI (모니터링 대시보드)
+  # ==========================================
+  # [2] Kafka UI
+  # ==========================================
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: capstone-kafka-ui
     ports:
-      - "8080:8080"
+      - "8090:8080" # 아키텍처 충돌 방지를 위해 외부 포트를 8090으로 격리 유지
     environment:
       - KAFKA_CLUSTERS_0_NAME=Capstone-Local
-      # UI는 도커 내부망(29092)을 통해 카프카와 통신
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
     depends_on:
       - kafka
-
-  # 3. 시계열 데이터베이스 (InfluxDB v2)
+    networks:
+      - capstone-network
+    restart: unless-stopped
+  # ==========================================
+  # [3] InfluxDB v2
+  # ==========================================
   influxdb:
     image: influxdb:2.7
     container_name: capstone-influxdb
@@ -45,7 +93,33 @@ services:
       - DOCKER_INFLUXDB_INIT_PASSWORD=capstone2026!
       - DOCKER_INFLUXDB_INIT_ORG=khnp-dr
       - DOCKER_INFLUXDB_INIT_BUCKET=power-data
-      # 실무에서는 숨겨야 하지만, 로컬 개발을 위해 고정 토큰 발급
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=super-secret-capstone-token
-    depends_on:
-      - kafka
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - capstone-network
+    restart: unless-stopped
+
+  # ==========================================
+  # [4] MySQL 8.0 
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: capstone-mysql
+    ports:
+      - "3306:3306" 
+    environment:
+      - MYSQL_ROOT_PASSWORD=capstone2026!
+      - MYSQL_DATABASE=energydb
+      - MYSQL_USER=energy
+      - MYSQL_PASSWORD=energy1234
+      - TZ=Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - capstone-network
+    restart: unless-stopped
