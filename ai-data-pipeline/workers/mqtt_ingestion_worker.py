@@ -84,6 +84,11 @@ class MqttToKafkaBridgeWorker:
                 "kwh_usage": pwr
             }
 
+            # ========================================================
+            # [추가] 물리 센서 인입 확인용 Traceability 로그
+            # ========================================================
+            logging.info(f"[PHYSICAL INGESTION] Device: {uid}, Power: {pwr} kW")
+
             # Kafka 전송 (직렬화 수행)
             self.kafka_producer.produce(
                 self.kafka_topic,

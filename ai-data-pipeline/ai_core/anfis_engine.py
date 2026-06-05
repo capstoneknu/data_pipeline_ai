@@ -52,8 +52,20 @@ class DREnergyFuzzyEngine:
             ctrl.Rule(self.user_reliability['medium'] & self.grid_stress['emergency'], (self.curtail_ratio['high'], self.reward_multiplier['high'])),
             ctrl.Rule(self.user_reliability['high'] & self.grid_stress['emergency'], (self.curtail_ratio['high'], self.reward_multiplier['high']))
         ]
-
         self.dr_ctrl = ctrl.ControlSystem(rules)
+
+    # [추가] XAI(설명 가능한 AI) 로그 생성기
+    def _generate_xai_log(self, reliability: float, stress: float, difficulty: str) -> str:
+        """ 입력된 퍼지 변수를 바탕으로 인간이 해석 가능한 형태의 인공지능 추론 근거 산출 """
+        if stress >= 0.7: stress_desc = "전력망 부하가 극심한 긴급(Emergency) 상태"
+        elif stress >= 0.4: stress_desc = "전력망 주의(Warning) 상태"
+        else: stress_desc = "전력망 안정(Normal) 상태"
+
+        if reliability >= 0.7: rel_desc = "사용자의 과거 미션 달성률(신뢰도)이 매우 우수하여"
+        elif reliability >= 0.4: rel_desc = "사용자의 과거 미션 달성률이 평균적이므로"
+        else: rel_desc = "사용자의 미션 실패율이 높아 이탈 방지를 위해"
+
+        return f"[XAI 추론결과] {stress_desc}이며, {rel_desc} 동적 난이도 '{difficulty}' 및 맞춤형 보상 배율을 산출함."
 
     def generate_mission(self, user_id: str, predicted_cbl: float, reliability: float, stress: float, base_points: int = 500) -> dict:
         try:
@@ -62,7 +74,6 @@ class DREnergyFuzzyEngine:
 
             local_sim.input['user_reliability'] = max(0.0, min(1.0, float(reliability)))
             local_sim.input['grid_stress'] = max(0.0, min(1.0, float(stress)))
-
             local_sim.compute()
 
             out_ratio = float(local_sim.output['curtail_ratio'])
@@ -75,13 +86,18 @@ class DREnergyFuzzyEngine:
             elif out_ratio >= 0.12: difficulty = "Medium"
             else: difficulty = "Easy"
 
+            # XAI 로그 부착
+            xai_log = self._generate_xai_log(reliability, stress, difficulty)
+            logging.info(f"사용자 {user_id} XAI 산출: {xai_log}")
+
             return {
                 "user_id": user_id,
                 "predicted_cbl_kwh": float(round(predicted_cbl, 2)),
                 "mission_target_kwh": float(round(target_kwh, 2)),
                 "curtailment_ratio_percent": float(round(out_ratio * 100, 1)),
                 "expected_reward_points": final_points,
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "explainability_log": xai_log
             }
 
         except Exception as e:
@@ -92,5 +108,6 @@ class DREnergyFuzzyEngine:
                 "mission_target_kwh": float(round(max(0.0, predicted_cbl * 0.95), 2)),
                 "curtailment_ratio_percent": 5.0,
                 "expected_reward_points": base_points,
-                "difficulty": "Easy"
+                "difficulty": "Easy",
+                "explainability_log": "[XAI Fallback] 엔진 붕괴로 인한 최소 난이도(Easy) 자동 배정"
             }

@@ -1,142 +1,175 @@
-
 # 우리집 전기 저금통 - AI & Data Pipeline
-Project Overview
-본 레포지토리는 강원특별자치도 2040 탄소중립 실현을 위한 '에지-AI 융합 분산 아키텍처 기반 도민 참여형 수요반응(DR) 플랫폼'의 데이터 파이프라인 및 인공지능(AI) 코어 시스템입니다.
-1만 가구 규모의 스마트 미터(AMI) 데이터를 실시간으로 수집·가공하고, LSTM 기반 전력 수요 예측과 ANFIS 기반 동적 난이도 조절(DDA) 엔진을 결합하여 가계 에너지를 효율적으로 관리하는 End-to-End AI 서비스 파이프라인을 구현하였습니다.<br>
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg) ![Python](https://img.shields.io/badge/Python-3.9+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg) ![Kafka](https://img.shields.io/badge/Apache_Kafka-3.6-231F20.svg) ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.7-22ADF6.svg)
 
+## 1. Project Overview
+본 레포지토리는 강원특별자치도 2040 탄소중립 실현을 위한 **'에지-AI 융합 분산 아키텍처 기반 도민 참여형 수요반응(DR) 플랫폼'**의 [Data Pipeline & AI Core] 시스템입니다. 
 
-# System Architecture & E2E Data Flow
+**1만 가구 규모**의 스마트 미터(AMI) 데이터를 실시간으로 수집·가공하고, **LSTM 기반 전력 수요 예측**과 **ANFIS 기반 동적 난이도 조절(DDA)** 엔진을 결합하여 가계 에너지를 효율적으로 관리하는 End-to-End AI 서비스 파이프라인을 구현하였습니다. 본 아키텍처는 클라이언트/백엔드(Spring Boot, MySQL) 영역과 분리되어 있어 독립적인 확장(Scale-out) 가능합니다.
+
+---
+
+## 2. System Architecture 
+본 시스템은 대규모 트래픽 완충과 시공간 데이터 무결성 확보를 위해 폴리글랏(Polyglot) 분산 아키텍처로 설계되었습니다.
+
+```mermaid
+flowchart TB
+    classDef person fill:#0F2537,stroke:#0A1925,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef app fill:#005587,stroke:#003355,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef backend fill:#007A86,stroke:#004C54,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef edge fill:#4A5C66,stroke:#2D383F,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef ai fill:#463366,stroke:#2B1E40,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef infra fill:#3D4043,stroke:#202223,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef db fill:#185C37,stroke:#0F3D24,color:#ffffff,stroke-width:2px,rx:8,ry:8;
+    classDef boundary fill:none,stroke:#666666,stroke-width:2px,stroke-dasharray:6 6;
+
+    User(("도민 참여자\n(User 1)")):::person
+
+    subgraph Boundary_Backend ["Client & Backend"]
+        direction TB
+        App["React Native App\n[Mobile Application]"]:::app
+        SpringBoot["Spring Boot Backend\n[Java, Spring Boot]"]:::backend
+        MySQL[("MySQL 8.0\n[Relational DB]")]:::db
+    end
+
+    subgraph Boundary_DataAI ["Data Pipeline & AI Core"]
+        direction TB
+        ESP32["물리 ESP32 센서\n[C/C++ Firmware]\nID: 99999, 가변저항 측정"]:::edge
+        Simulators["가상 센서 시뮬레이터\n[Python]\nID: 1~10000, 대규모 트래픽"]:::edge
+        
+        Mosquitto["Eclipse Mosquitto\n[MQTT Broker]"]:::infra
+        MqttWorker["MQTT-Kafka Bridge\n[Python Worker]"]:::infra
+        
+        Kafka{"Apache Kafka\n[Message Broker]\npower-usage-topic"}:::infra
+        
+        InfluxWorker["InfluxDB Ingestion\n[Python Worker]"]:::infra
+        InfluxDB[("InfluxDB v2\n[Time-Series DB]")]:::db
+        
+        FastAPI["AI Engine\n[Python, FastAPI]\nLSTM & ANFIS (DDA)"]:::ai
+    end
+
+    User -->|"Uses"| App
+    App <-->|"HTTP/REST, WebSocket"| SpringBoot
+    SpringBoot <-->|"JDBC, JPA"| MySQL
+
+    ESP32 -->|"Publishes (QoS 1)"| Mosquitto
+    Mosquitto -->|"Subscribes"| MqttWorker
+    MqttWorker -->|"Produces"| Kafka
+    Simulators -->|"Produces (10,000 TPS)"| Kafka
+
+    Kafka -->|"Consumes (Batch 500)"| InfluxWorker
+    InfluxWorker -->|"Batch Writes"| InfluxDB
+
+    Kafka -->|"Consumes & Filters"| SpringBoot
+    SpringBoot -->|"HTTP POST (/generate/{id})"| FastAPI
+    FastAPI -->|"Queries CBL Data"| InfluxDB
+
+    class Boundary_Backend,Boundary_DataAI boundary;
 ```
-[Data Generation & Edge]       [Streaming & Buffering]           [AI Core & Persistence]        [Client Broadcasting]
-   (Python Simulator)               (Apache Kafka)                 (FastAPI / InfluxDB)        (Spring Boot / React Native)
-                                                                                                          
- ┌──────────────────┐           ┌───────────────────┐           ┌───────────────────────┐        ┌──────────────────────┐
- │  ESP32 Sensors   │ 10,000    │   Kafka Broker    │ 비동기    │  AI Ingestion API     │ 15-Min  │   React Native App   │
- │ (10,000 Nodes)   │ ────▶    │ (power-usage-topic│ ────▶    │ (LSTM / ANFIS Engine) │ ────▶  │  (Real-time Chart &  │
- │  1-Min Interval  │  TPS      │   Rebound Buffer) │ Polling   │   InfluxDB Storage    │ Group  │    DR Gamification)  │
- └──────────────────┘           └───────────────────┘           └───────────────────────┘        └──────────────────────┘
-```
- 1) 발생 (Generation): 1만 가구의 1분 단위 전력 소비 데이터를 파이썬 기반 가상 ESP32 클러스터가 생성합니다.  
- 2) 완충 (Buffering): DR 이벤트 종료 시 발생하는 대규모 리바운드 피크(Rebound Peak) 부하를 방어하기 위해 Apache Kafka가 최대 605MB/s의 처리량으로 데이터를 흡수합니다.  
- 3) 예측 및 조절 (AI & DDA): LSTM 모델이 고객기준부하(CBL)를 90% 이상의 정밀도(MAPE 10% 이하)로 예측하고, ANFIS 엔진이 개인화된 미션 난이도를 산출합니다.  
- 4) 표출 (Visualization): 백엔드를 거친 데이터는 React Native 앱의 SVG 차트 규격(96슬롯)에 맞춰 시각화되며, E2E 스트리밍을 완성합니다. <br>
 
-# 아키텍처 고도화 및 트러블슈팅 (Key Refinements)
-초기 기획에서 한 단계 전진하여, 트래픽 처리와 시공간 데이터 무결성을 확보하기 위해 다음과 같이 아키텍처 고도화하였습니다.
-1) 시뮬레이션 규모 확장 및 Cloud GPU 기반 AI 학습 (Google Colab)
-- 변경 사항: 프랑스 파리 UCI 데이터와 강원 원주시 데이터를 융합한 합성 데이터의 규모를 1,000가구에서 10,000가구(약 4.3억 건)의 볼륨으로 증가시켰습니다.
-- 문제: 합성된 데이터의 규모를 증가시키면서, 로컬 터미널 환경에서 모델(train.py) 학습 시 심각한 병목(OOM 및 장시간 멈춤 현상)이 발생했습니다.
-- 해결: 로컬 학습을 과감히 배제하고, Google Colab 환경으로 마이그레이션하여 Cloud GPU(A100/T4)를 활용했습니다. 대규모 분산 학습을 성공적으로 완료한 후, 추출된 가중치(khnp_dr_best_model.pth)와 스케일러(scaler.pkl) 객체만을 로컬의 saved_models 디렉터리로 이관하여 Serving 속도를 극대화하였습니다.<br>
+## 3. Engineering Achievements
+### 3.1. 물리-가상 투-트랙(Two-Track) 하이브리드 에지 아키텍처 구축
+단순 시뮬레이션을 넘어, 실제 하드웨어 센서망과 대규모 가상 부하를 동시에 수용하는 하이브리드 Ingestion 레이어를 구현했습니다.
 
-2) Time-Warp 스트리밍 엔진 구현 (시공간 동기화)
-- 변경 사항: 기존 유저(User) 단위로 묶여서 발송되던 Pandas melt 데이터 정렬 방식을 시간순(Timestamp) 정렬로 개편하고, 전송 속도(target_tps)를 10,000으로 설정했습니다.
-- 타당성: 1만 가구의 1분 치 데이터를 1초 만에 브로커로 쏘아 올림으로써 "현실 세계의 1초 = 시뮬레이션 세상의 1분"이라는 Time-Warp 물리 법칙을 구축했습니다. 이를 통해 발표 시연 시 24시간을 기다리지 않고도 하루 단위의 DR 이벤트 흐름을 관찰할 수 있습니다.<br>
+- [Physical Edge] 노이즈 필터링 보장: 실제 환경에 배치된 ESP32(ID: 99999) 보드는 내부적으로 10회 이동평균(Moving Average) 연산을 수행하여 아날로그 센서 노이즈를 제거한 뒤, MQTT(QoS 1)로 데이터를 안전하게 퍼블리싱합니다.
 
-3) 15분 단위(96슬롯) 데이터 다운샘플링 규격 확립
-- 변경 사항: 1분 단위 원시(Raw) 데이터를 백엔드에서 시간당 4포인트(15분 단위), 하루 총 96개의 슬롯 배열(hourlyActual)로 다운샘플링하여 앱으로 브로드캐스트합니다.
-- 타당성: React Native 프론트엔드의 SVG 꺾은선 그래프 렌더링 한계를 방어하고 UI 프레임 드랍을 막기 위함입니다. 1분 단위 점 1,440개를 화면에 그리는 오버헤드를 제거하고, 앱의 X축 렌더링 공식과 데이터 길이를 동기화하였습니다.<br>
+- [Virtual Edge] O(1) 이상치 사전 폐기: virtual_esp32_sensor.py는 10,000가구의 부하(10,000 TPS)를 발생시키기 직전, 물리적으로 불가능한 전력 수치(< 0.0kW 또는 > 15.0kW)를 에지 단에서 즉시 폐기(Drop)하여 중앙 Kafka 브로커의 네트워크 대역폭 낭비를 차단했습니다.
 
-4) 분산 환경의 데이터 오염 (Data Corruption) 차단
-- 변경 사항: Kafka Consumer 단에서 존재하지 않는 유저의 데이터를 단일 유저(User 1)에게 몰아넣어 합산 누적량이 6,888kWh로 폭주하던 결함을 도려내고, 매핑된 정확한 유저의 데이터만 수용하도록 Ingestion 필터를 교정했습니다.
-- 타당성: 대규모 트래픽 발생 시, 매핑되지 않은 잔여 가구 데이터는 안전하게 폐기하고, 실제 타겟 유저의 데이터만 RDB에 적재함으로써 데이터 파이프라인의 무결성을 확보했습니다.<br><br>
+- [Backend] 식별자 정규화 및 트래픽 격리 방어막: 수만 건의 데이터가 혼재된 Kafka 토픽에서, Spring Boot 컨슈머는 단일 타겟 유저(User 1)로 데이터를 매핑 정규화하고 매핑되지 않은 더미 트래픽(ID: 2~10000)은 RDB 적재 전 즉각 드롭(Drop)시켜 데이터베이스 오염을 방어합니다.
 
-# 필수 데이터 세팅 안내
-원본 데이터는 대용량(CSV/TXT)으로 제공되므로, 드라이브에 압축하여 링크를 공유합니다. <br>
-코드를 실행하기 전, 반드시 아래 절차를 통해 데이터를 로컬에 세팅해 주세요.
+### 3.2. 비동기 시계열 데이터 배치 적재 (Asynchronous Batch Ingestion)
+1분 단위로 1만 가구에서 쏟아지는 방대한 데이터를 견디기 위해, 카프카 토픽(power-usage-topic)을 활용한 디커플링 구조를 설계하였습니다.
 
-<br>**[데이터 다운로드 링크1 (Google Drive)]**<br>
-https://drive.google.com/file/d/1FAhj9jCu8ryB4thFB-vR_AtOtgGcFJkq/view?usp=drive_link  
+- 분산 Consumer Group: 파이썬 ingestion_api.py 워커는 백엔드 서버와 분리된 독립적인 컨슈머 그룹을 형성하여 메시지를 안전하게 구독합니다.
 
-<br>**[세팅 절차]**<br>
-1. 위 링크에서 `power_dataset_v1.zip` 파일을 다운로드합니다.
-2. 프로젝트 최상단 경로에 `data/` 폴더를 생성합니다.
-3. 다운받은 압축 파일을 해제하여 `data/` 폴더 안에 넣습니다.<br><br>
+- 500-Batch 최적화: 매 건마다 DB I/O를 발생시키지 않고, batch_size=500, flush_interval=1000ms 옵션을 적용하여 InfluxDB에 대규모 Chunk 단위로 비동기 배치 쓰기를 수행함으로써 시계열 DB의 쓰기 성능을 개선하였습니다.
 
-<br>**[데이터 다운로드 링크2 (Google Drive)]**<br>
-https://drive.google.com/drive/folders/1qet8-LPyzRVhxsRTOCw0b9KRusf486kN?usp=drive_link
-<br>**[세팅 절차]**<br>
-4. CAPSTONE2026_AI/saved_models/내부 3개의 파일(.pth, .pkl)을 로컬의 ai-data-pipeline/ai_core/saved_models/ 경로에 덮어쓰기 합니다.
+### 3.3. AI 코어 결함 허용성(Fault-Tolerance) 및 Cold-Start 방어
+FastAPI 기반의 AI 엔진(ml_inference.py)은 운영 환경의 다양한 변수에 대응하는 방어적 프로그래밍이 적용되었습니다.
 
-<br>**[데이터 설명]**<br>
-구하기 힘든 실제 1분 단위 전력 소비 데이터를 얻기 위해 가상데이터를 만들기보다는 실제 존재하는 데이터를 활용하였습니다.
+- API 계약 불일치 및 통신 장애 방어: MSA 통신 지연이나 404/500 에러 발생 시, 시스템이 붕괴하지 않고 즉각적으로 기본 미션(Easy 난이도, 50P)을 배정하는 Fallback 로직(createFallbackMission)을 동작시켜 프론트엔드 앱의 무중단 서비스를 보장합니다.
 
-프랑스 파리 전역 2075259가구의 1분 단위로 측정한 전력 소비 데이터에, 원주시 시간대별 전력 사용량 데이터의 전력 소비 패턴을 융합하여<br>
-1,000가구 분량의 실무형 데이터를 합성하였습니다.
-<br><br>
+- KST 강제 동기화 및 콜드스타트 처리: Docker 컨테이너의 UTC 시간 오차를 방어하기 위해 ZoneInfo("Asia/Seoul")를 사용하여 주/야간 위상 변이 오류를 제거했으며, 데이터가 부족한 신규 유저 유입 시 기본 임베딩(idx=0)으로 안전하게 추론을 수행합니다.
 
-# 시스템 구동 절차 (Execution Guide)
-본 시스템은 다수의 분산 노드와 파이프라인으로 구성되어 있습니다. 의존성 충돌 및 파싱 에러를 방지하기 위해, 두 개의 터미널(VS Code) 창을 띄우고 아래의 순서와 경로를 정확히 지켜 실행합니다.<br>
+### 3.4. 듀얼-트랙 데이터 브로드캐스팅 및 다운샘플링 규약
+프론트엔드 UI 렌더링 한계를 방어하고, 실시간 반응성을 높이기 위해 데이터의 목적에 따라 전송 규약을 분리했습니다.
 
-<br>============================================================<br>
-[Terminal 1] 
-#Phase 1: 인프라 컨테이너 가동<br>
-Kafka 브로커 및 데이터베이스를 가장 먼저 가동합니다.
-경로: 프로젝트 최상단 (CAPSTONE2026)
+- 실시간 1초 틱 스트리밍: 현재 사용량(도넛 차트 등)은 Kafka 소비와 동시에 1초 주기 스로틀링을 거쳐 WebSocket으로 실시간 브로드캐스트됩니다.
+
+- 24슬롯 AI 예측 다운샘플링: LSTM이 예측한 15분 단위(96슬롯) 결과물은 FastAPI에서 HTTP REST 요청 반환 시 1시간 단위(24슬롯)로 자동 다운샘플링되어 백엔드 프레임 드랍을 막고 규약을 정규화합니다.
+
+## 4. 필수 데이터 세팅 안내 
+본 시스템의 인공지능 학습 및 시뮬레이션을 위한 데이터셋은 프랑스 파리 전역 데이터와 강원 원주시 전력 패턴을 융합하여 합성되었습니다. (볼륨: 1만 가구, 약 4.3억 건)
+
+- 원시 데이터셋 (Google Drive): [다운로드 링크](https://drive.google.com/file/d/1FAhj9jCu8ryB4thFB-vR_AtOtgGcFJkq/view?usp=drive_link)  
+  - 압축 해제 후 프로젝트 최상단의 data/ 디렉터리에 배치합니다.
+
+- 학습 완료 모델 및 스케일러 (Google Drive): [다운로드 링크](https://drive.google.com/drive/folders/1qet8-LPyzRVhxsRTOCw0b9KRusf486kN?usp=drive_link)
+  - khnp_dr_best_model.pth, scaler.pkl, user_to_idx.pkl 파일을 ai-data-pipeline/ai_core/saved_models/ 경로에 덮어쓰기 합니다.
+
+
+## 5. 실행 가이드 
+마이크로서비스 의존성 충돌을 방지하기 위해 아래의 순서를 준수하여 5개의 터미널에서 각각 기동합니다.
+
+### [Terminal 1] Phase 1: 인프라 컨테이너 가동 (Kafka, InfluxDB 등)
+```bash
+cd CAPSTONE2026
 docker-compose up -d
-<br>============================================================<br>
-[Terminal 2] 
-#Phase 2: 시공간 동기화 데이터 합성<br>
-과거의 오염된 데이터를 버리고, 시간순으로 정렬된 1만 가구 데이터를 새로 뽑아냅니다. (※ 1회만 실행하며, 생성된 CSV는 엑셀로 절대 열지 마십시오. 타임스탬프 포맷이 오염됩니다.)
-CAPSTONE2026/ai-data-pipeline/simulators> python generate_dr_data.py
-<br>============================================================<br>
-[Terminal 3] 
-#Phase 3: AI API Serving 기동<br>
-B파트(Spring Boot)의 예측 데이터 요청을 수용하기 위해 FastAPI 서버를 켭니다.
-CAPSTONE2026/ai-data-pipeline> uvicorn api_serving.main:app --host 0.0.0.0 --port 8000
-<br>============================================================<br>
-[Terminal 4 & 5] 
-#Phase 4 & 5: 스트리밍 및 Ingestion 워커 기동<br>
-① 데이터 발사 시작 (Terminal 4)
-CAPSTONE2026/ai-data-pipeline/simulators> python virtual_esp32_sensor.py<br>
+```
 
-② 수집 워커 기동 (Terminal 5)
-CAPSTONE2026/ai-data-pipeline/workers> python ingestion_api.py
-<br>============================================================<br>
+### [Terminal 2] Phase 2: 시공간 동기화 데이터 합성 (최초 1회만 실행)
+```bash
+cd CAPSTONE2026/ai-data-pipeline/simulators
+python generate_dr_data.py
+```
+
+### [Terminal 3] Phase 3: AI 엔진 (FastAPI) Serving 가동
+```bash
+cd CAPSTONE2026/ai-data-pipeline
+uvicorn api_serving.main:app --host 0.0.0.0 --port 8000
+```
+
+### [Terminal 4] Phase 4: 비동기 시계열 적재 워커 가동
+```bash
+cd CAPSTONE2026/ai-data-pipeline/workers
+python ingestion_api.py
+```
+
+### [Terminal 5] Phase 5: 물리-가상 하이브리드 트래픽 발사 (10,000 TPS)
+```bash
+cd CAPSTONE2026/ai-data-pipeline/simulators
+python virtual_esp32_sensor.py
+```
+### (※ 물리 ESP32 보드는 별도 전원 인가 시 자동 연동됨)
 
 
-# Directory Structure
-본 레포지토리는 모델 연구, API 서빙, 데이터 생성, 인프라 관리를 명확히 분리하였습니다.<br>
+## 6. Directory Structure
 ```
 CAPSTONE2026/
 ├── ai-data-pipeline/
-│   ├── ai_core/                        # [AI 모델 훈련 및 추론 코어 로직]
-│   │   ├── saved_models/               # Colab에서 훈련 완료 후 이관된 모델 산출물
-│   │   │   ├── khnp_dr_best_model.pth  # 학습된 LSTM 최적 가중치 파일
-│   │   │   ├── scaler.pkl              # 데이터 정규화 스케일러
-│   │   │   └── user_to_idx.pkl         # 가구별 고유 인덱스 맵핑
-│   │   ├── anfis_engine.py             # 적응형 뉴로-퍼지 기반 동적 미션 난이도 조절 엔진
-│   │   ├── data_loader.py              # InfluxDB/CSV 대용량 데이터 전처리 모듈
-│   │   ├── db_client.py                # 시계열 데이터베이스(InfluxDB) 연결 및 I/O 클라이언트
-│   │   ├── model.py                    # PyTorch 기반 LSTM 네트워크 아키텍처 정의
-│   │   └── train.py                    # 모델 학습 파이프라인 스크립트
+│   ├── ai_core/                        # [AI 모델 훈련 및 코어 로직]
+│   │   ├── saved_models/               # 최적화된 LSTM 가중치 및 스케일러 보관
+│   │   ├── anfis_engine.py             # 신경망-퍼지 결합 DDA(동적 난이도) 엔진
+│   │   ├── model.py                    # PyTorch 기반 LSTM 네트워크 정의
+│   │   └── train.py                    # Cloud GPU 분산 학습 파이프라인
 │   │
-│   ├── api_serving/                    # [FastAPI 기반 AI 모델 서빙/라우팅 계층]
-│   │   ├── main.py                     # API 서버 진입점 및 애플리케이션 초기화
-│   │   ├── ml_inference.py             # 실시간 요청에 대한 LSTM/ANFIS 추론 수행 모듈
-│   │   ├── router.py                   # B파트(Spring Boot) 연동 엔드포인트 정의
-│   │   ├── schemas.py                  # Pydantic 기반 Request/Response DTO 정의
-│   │   └── services.py                 # API 비즈니스 로직 및 예외 처리
+│   ├── api_serving/                    # [FastAPI AI 서빙 계층]
+│   │   ├── main.py                     # API 서버 진입점
+│   │   ├── ml_inference.py             # LSTM/ANFIS 추론 래퍼 (KST 동기화 및 Cold-Start 방어)
+│   │   └── router.py                   # Spring Boot 연동 REST 엔드포인트
 │   │
-│   ├── data/                           # (Local) 합성된 1만 가구의 원시/가공 CSV 보관소
+│   ├── data/                           # [로컬 데이터 보관소] 1만 가구 융합 시계열 데이터
 │   │
-│   ├── notebooks/                      # [클라우드 연구 및 실험 환경]
-│   │   └── DR_24H_Model_Training.ipynb # (Google Colab용) 대규모 분산 학습 주피터 노트북
+│   ├── edge_firmware/                  # [물리 에지 노드 펌웨어]
+│   │   └── esp32_mqtt_client.ino       # 10회 이동평균 필터링 및 JSON 페이로드 MQTT 통신 C++ 코드
 │   │
-│   ├── simulators/                     # [가상 센서 및 데이터 파이프라인 발생기]
-│   │   ├── bulk_ingestion.py           # 초기 학습을 위해 InfluxDB에 대규모 데이터를 밀어넣는 배치 로더
-│   │   ├── generate_dr_data.py         # 1만 가구 1분 단위 시계열 데이터 합성 및 시간순 정렬기
-│   │   └── virtual_esp32_sensor.py     # 생성된 데이터를 Kafka로 쏘아 올리는 실시간 스트리밍 에뮬레이터
+│   ├── simulators/                     # [가상 센서 발생기]
+│   │   ├── generate_dr_data.py         # Time-Warp 시공간 동기화 데이터 정렬기
+│   │   └── virtual_esp32_sensor.py     # 1만 가구 동시 부하 및 Edge O(1) 필터링 스트리밍 로직
 │   │
-│   ├── stress_test/                    # [시스템 부하 및 안정성 한계 검증]
-│   │   ├── demo_live_sensor.py         # 시연용 소규모 실시간 센서 테스트
-│   │   └── stress_test_simulator.py    # 목표 TPS를 초과하는 극한의 더미 트래픽 발생기
-│   │
-│   ├── workers/                        # [비동기 백그라운드 데이터 수집 워커]
-│   │   ├── ingestion_api.py            # 센서 데이터 1차 필터링 및 파싱 게이트웨이
-│   │   └── mqtt_ingestion_worker.py    # MQTT 브로커와 통신하는 구독/발행 워커
-│   │
-│   └── requirements.txt                # Python 프로젝트 패키지 의존성 명세
+│   └── workers/                        # [메시지 브릿지 및 적재 워커]
+│       ├── ingestion_api.py            # InfluxDB 500-Batch 비동기 적재 워커
+│       └── mqtt_ingestion_worker.py    # MQTT ➔ Kafka 브릿지 및 페이로드 스키마 정규화
 │
-├── docker-compose.yml                  # Kafka, Zookeeper, InfluxDB 등 인프라 컨테이너 구성 파일
+├── docker-compose.yml                  # 인프라(Kafka, InfluxDB) 컨테이너 명세
 └── README.md                           # 현재 문서
 ```
