@@ -1,4 +1,5 @@
-# 우리집 전기 저금통 - AI & Data Pipeline
+# 에지-AI 융합 분산 아키텍처 기반 강원도민 참여형 수요 반응 및 게이미피케이션 플랫폼 구축
+## 우리집 전기 저금통 - AI & Data Pipeline
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg) ![Python](https://img.shields.io/badge/Python-3.9+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg) ![Kafka](https://img.shields.io/badge/Apache_Kafka-3.6-231F20.svg) ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.7-22ADF6.svg)
 
 ## 1. Project Overview
