@@ -76,7 +76,6 @@ flowchart TB
 
     %% Layout hints
     class Boundary_Backend,Boundary_DataAI boundary;
-    ```
 
 ## 3. Engineering Achievements
 ### 3.1. 실제 센서와 가상 트래픽의 하이브리드 에지 아키텍처 구축
