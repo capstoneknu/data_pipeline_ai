@@ -96,7 +96,6 @@ void loop() {
     payload += "\"power_kwh\":" + String(kwh_usage, 4);
     payload += "}";
 
-    // 4. 정확한 토픽으로 QoS 1(최소 한 번 전송 보장) 퍼블리싱
     client.publish(mqtt_topic, payload.c_str(), false);
 
     // 5. 에지 디스플레이 출력
