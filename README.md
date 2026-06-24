@@ -172,8 +172,8 @@ nohup python virtual_esp32_sensor.py > sensor_traffic.log 2>&1 &
 # [Log Monitor] 
 tail -f sensor_traffic.log
 ```
-
 (※ 고유 ID(99999)를 가진 물리 ESP32 보드는 별도 전원 인가 시 클라우드 MQTT 브로커로 자동 연동됩니다.)
+
 ---
 ### [Phase 6] Spring Boot 메인 백엔드 데몬 가동
 모바일 클라이언트(App)와 직접 통신하며 결제, 인증, 웹소켓 관리를 총괄하는 비즈니스 계층을 8085 포트로 기동합니다.
@@ -188,6 +188,7 @@ tail -f springboot.log
 ### [Troubleshooting] 클라우드 데몬 프로세스 일괄 종료 가이드
 메모리 누수 방지를 위해 현재 실행 중인 모든 데몬 프로세스를 안전하게 종료하는 명령어입니다.
 
+```bash
 # 1. 파이썬 기반 AI 코어 및 데이터 워커 일괄 종료
 pkill -f python
 
