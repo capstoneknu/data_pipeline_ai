@@ -120,15 +120,43 @@ flowchart TB
 ---
 
 ## 5. AWS EC2 클라우드 실행 및 운영 가이드 
-  본 프로젝트의 백엔드 인프라는 현재 AWS EC2 클라우드 환경에서 무중단으로 가동 중입니다. 
+  본 프로젝트는 MSA(Microservices Architecture)로 구성어 세분화된 인프라를 가지고 있습니다. 
+  운영 편의성과 배포 자동화를 위해 **단일 통합 제어 스크립트(Master Shell Script)**를 자체 제작하여 제공합니다. 
+
+---
+### 5.1. MSA 인프라 일괄 시동 (`start_msa.sh`)
+  이 스크립트는 DB 컨테이너 부팅 ➔ AI 코어 ➔ 비동기 워커 ➔ Spring Boot 메인 서버 ➔ 트래픽 시뮬레이터 순으로, 각 컴포넌트의 의존성과 부팅 대기 시간(Sleep)을 고려하여 시스템을 안전하게 기동합니다.
+
+```bash
+# 프로젝트 최상위 경로에서 실행
+./start_msa.sh
+```
+---
+### 5.2. MSA 인프라 일괄 종료 (stop_msa.sh)
+  메모리 누수를 방지하고 할당받은 포트를 안전하게 반환하기 위해, 백그라운드에서 동작 중인 Python 데몬, Java 데몬, 그리고 Gradle 빌드 보조 프로세스를 추적하여 한 번에 종료합니다.
+
+```bash
+./stop_msa.sh
+```
+---
+
+### 5.3. 시스템 상태 통합 모니터링 (status_msa.sh)
+  여러 포트와 백그라운드 데몬으로 흩어진 MSA 컴포넌트들의 동작 여부(PID, Port, Docker Status)를 한 번에 스캔하여 확인합니다.
+```bash
+./status_msa.sh
+```
+---
+
+### 5.4. 컴포넌트별 개별 수동 제어 및 로그 확인
+통합 스크립트를 사용하지 않고 특정 컴포넌트만 디버깅하거나 재시작해야 할 경우, 아래의 개별 명령어를 사용합니다. <br>
+(각 단계는 독립된 터미널 세션에서 실행을 권장합니다.)
 
 ### [Phase 1] 인프라 컨테이너 가동 (MySQL, InfluxDB 등)
-분산 환경의 근간이 되는 데이터베이스를 가동합니다.
 ```bash
 cd ~/data_pipeline_ai/ai-data-pipeline
 docker-compose up -d
 
-# [상태 확인] 모든 컨테이너가 Up 상태인지 확인
+# [상태 확인] 
 docker ps
 ```
 ---
@@ -141,7 +169,6 @@ python generate_dr_data.py
 ```
 ---
 ### [Phase 3] AI 엔진 (FastAPI) Serving 데몬 가동
-ANFIS 및 XAI 동적 미션 산출을 담당하는 AI 코어를 8000 포트 백그라운드로 실행합니다.
 ```bash
 cd ~/data_pipeline_ai/ai-data-pipeline
 source .venv/bin/activate
@@ -152,7 +179,6 @@ tail -f fastapi.log
 ```
 ---
 ### [Phase 4] 비동기 시계열 적재 워커 데몬 가동
-Kafka 데이터를 시계열 데이터베이스로 압축 저장하는 파이프라인 워커를 기동합니다. 백그라운드로 실행합니다.
 ```bash
 cd ~/data_pipeline_ai/ai-data-pipeline/workers
 nohup python ingestion_api.py > ingestion.log 2>&1 &
@@ -164,7 +190,6 @@ tail -f mqtt_worker.log
 ```
 ---
 ### [Phase 5] 물리-가상 하이브리드 트래픽 전송 (10,000 TPS)
-1만 가구의 대규모 가상 센서 스트림 트래픽을 클라우드 망으로 전송합니다.
 ```bash
 cd ~/data_pipeline_ai/ai-data-pipeline/simulators
 nohup python virtual_esp32_sensor.py > sensor_traffic.log 2>&1 &
@@ -185,7 +210,7 @@ nohup ./gradlew bootRun > springboot.log 2>&1 &
 tail -f springboot.log
 ```
 ---
-### [Troubleshooting] 클라우드 데몬 프로세스 일괄 종료 가이드
+### [Troubleshooting] 클라우드 데몬 프로세스 수동 종료 가이드
 메모리 누수 방지를 위해 현재 실행 중인 모든 데몬 프로세스를 안전하게 종료하는 명령어입니다.
 
 ```bash
@@ -195,11 +220,11 @@ pkill -f python
 # 2. 자바 기반 Spring Boot 백엔드 종료
 pkill -f bootRun
 
-# 3. 백그라운드에 숨은 빌드 보조 프로그램(Gradle Daemon) 완전 종료
+# 3. 백그라운드에 숨은 빌드 보조 프로그램(Gradle Daemon) 종료
 cd ~/backend_service_client/energy-api
 ./gradlew --stop
 
-# 4. 정상 종료 여부 확인 (아무것도 출력되지 않아야 정상입니다.)
+# 4. 정상 종료 여부 확인
 ps -ef | grep python
 ps -ef | grep java
 ```
@@ -243,6 +268,10 @@ CAPSTONE2026/
 │   └── workers/                        # [메시지 브릿지 및 적재 워커]
 │       ├── ingestion_api.py            # InfluxDB 500-Batch 비동기 적재 워커
 │       └── mqtt_ingestion_worker.py    # MQTT ➔ Kafka 브릿지 및 페이로드 스키마 정규화
+│
+├── start_msa.sh                        # AWS Ununtu 환경 시스템 일괄 기동 스크립트
+├── status_msa.sh                       # AWS Ununtu 환경 MSA 컴포넌트 동작 여부 확인 스크립트
+├── stop_msa.sh                         # AWS Ununtu 환경 시스템 일괄 종료 스크립트
 │
 ├── docker-compose.yml                  # 인프라(Kafka, InfluxDB) 컨테이너 명세
 └── README.md                           # 현재 문서                      
